@@ -7,7 +7,8 @@ import WebSocket, { WebSocketServer } from 'ws';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import * as routers from './routes/index.js';
+import * as v2Routers from './routes/v2/index.js';
+import * as v3Routers from './routes/v3/index.js';
 
 // ESM equivalent for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -219,50 +220,34 @@ app.use(authMiddleware);
 // --- API ROUTE MOUNTING ---
 // =========================================================================================
 
-app.use('/api/academics', routers.academicsRouter);
-app.use('/api/activities', routers.activitiesRouter);
-app.use('/api/admin', routers.adminRouter);
-app.use('/api/auth', routers.authRouter);
-app.use('/api/awards', routers.awardsRouter);
-app.use('/api/bursar', routers.bursarRouter);
-app.use('/api/calls', routers.callsRouter);
-app.use('/api/chat', routers.chatRouter);
-app.use('/api/classes', routers.classesRouter);
-app.use('/api/communications', routers.communicationsRouter);
-app.use('/api/dashboard', routers.dashboardsRouter);
-app.use('/api/discipline', routers.disciplineRouter);
-app.use('/api/doctor', routers.doctorRouter);
-app.use('/api/events', routers.eventsRouter);
-app.use('/api/finance', routers.financeRouter);
-app.use('/api/forum', routers.forumRouter);
-app.use('/api/headteacher', routers.headteacherRouter);
-app.use('/api/history', routers.historyRouter);
-app.use('/api/hr', routers.hrRouter);
-app.use('/api/inventory', routers.inventoryRouter);
-app.use('/api/leaderboard', routers.leaderboardRouter);
-app.use('/api/librarian', routers.librarianRouter);
-app.use('/api/library', routers.libraryRouter);
-app.use('/api/meetings', routers.meetingsRouter);
-app.use('/api/notifications', routers.notificationsRouter);
-app.use('/api/parent', routers.parentRouter);
-app.use('/api/settings', routers.settingsRouter);
-app.use('/api/students', routers.studentsRouter);
-app.use('/api/teacher', routers.teacherRouter);
-app.use('/api/transport', routers.transportRouter);
-app.use('/api/users', routers.usersRouter);
+// --- V2 API ---
+const v2ApiRouter = express.Router();
+Object.values(v2Routers).forEach(router => v2ApiRouter.use(router));
+app.use('/api/v2', v2ApiRouter);
+
+// --- V3 API ---
+const v3ApiRouter = express.Router();
+Object.values(v3Routers).forEach(router => v3ApiRouter.use(router));
+app.use('/api/v3', v3ApiRouter);
+
+// Redirect /api to the latest version for convenience
+app.use('/api', v3ApiRouter);
+
 
 // Pass middleware to routers that need it (example for file uploads)
-routers.usersRouter.post('/', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.usersRouter.put('/:id', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.studentsRouter.post('/', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.studentsRouter.put('/:id', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.financeRouter.post('/expenses', receiptUploadMiddleware.single('receiptFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.financeRouter.put('/expenses/:id', receiptUploadMiddleware.single('receiptFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.academicsRouter.post('/syllabus', fileUploadMiddleware.single('syllabusFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.academicsRouter.put('/syllabus/:syllabusId', fileUploadMiddleware.single('syllabusFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.teacherRouter.post('/resources', fileUploadMiddleware.single('resourceFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.teacherRouter.put('/resources/:id', fileUploadMiddleware.single('resourceFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
-routers.chatRouter.post('/upload-file', fileUploadMiddleware.single('chatFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+// This is a simplified approach. A more robust solution would involve defining these in the router files themselves.
+v2Routers.usersRouter.post('/', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.usersRouter.put('/:id', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.studentsRouter.post('/', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.studentsRouter.put('/:id', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.financeRouter.post('/expenses', receiptUploadMiddleware.single('receiptFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.financeRouter.put('/expenses/:id', receiptUploadMiddleware.single('receiptFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.academicsRouter.post('/syllabus', fileUploadMiddleware.single('syllabusFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.academicsRouter.put('/syllabus/:syllabusId', fileUploadMiddleware.single('syllabusFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.teacherRouter.post('/resources', fileUploadMiddleware.single('resourceFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.teacherRouter.put('/resources/:id', fileUploadMiddleware.single('resourceFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+v2Routers.chatRouter.post('/upload-file', fileUploadMiddleware.single('chatFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+
 
 // =========================================================================================
 // --- WebSocket Server Logic ---
