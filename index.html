@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" class="">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>School Management System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class', // Enable class-based dark mode
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              200: '#bfdbfe',
+              300: '#93c5fd',
+              400: '#60a5fa',
+              500: '#3b82f6', // Main Primary
+              600: '#2563eb', // Darker Primary
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a',
+              950: '#172554',
+            },
+            secondary: { // Light mode secondary (grays)
+              50: '#f9fafb', // Lighter gray for backgrounds
+              100: '#f3f4f6',
+              200: '#e5e7eb',
+              300: '#d1d5db',
+              400: '#9ca3af',
+              500: '#6b7280',
+              600: '#4b5563',
+              700: '#374151', // Darker gray for text
+              800: '#1f2937',
+              900: '#111827',
+              950: '#030712',
+            },
+            // Dark mode specific colors (can be same as secondary if desired, or new palette)
+            dark: {
+              primary: '#3b82f6', // Example: same primary blue
+              secondary: '#1f2937', // Dark background
+              text: '#d1d5db', // Light text for dark backgrounds
+              card: '#374151', // Card background in dark mode
+              border: '#4b5563', // Border color in dark mode
+            }
+          },
+          keyframes: {
+            modalShow: {
+              '0%': { opacity: '0', transform: 'translateY(10px) scale(0.95)' }, /* Slightly changed */
+              '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+            },
+            toastInRight: {
+              '0%': { transform: 'translateX(100%)', opacity: '0' },
+              '100%': { transform: 'translateX(0)', opacity: '1' },
+            },
+            toastOutRight: {
+              '0%': { transform: 'translateX(0)', opacity: '1' },
+              '100%': { transform: 'translateX(100%)', opacity: '0' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            slideInUp: {
+              '0%': { opacity: '0', transform: 'translateY(20px)'}, /* Existing */
+              '100%': { opacity: '1', transform: 'translateY(0)'},
+            },
+            cardEntry: { /* New */
+              '0%': { opacity: '0', transform: 'translateY(30px) scale(0.95)' },
+              '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+            }
+          },
+          animation: {
+            modalShow: 'modalShow 0.3s ease-out forwards',
+            toastInRight: 'toastInRight 0.3s ease-out forwards',
+            toastOutRight: 'toastOutRight 0.3s ease-in forwards',
+            fadeIn: 'fadeIn 0.5s ease-out forwards',
+            slideInUp: 'slideInUp 0.5s ease-out forwards',
+            cardEntry: 'cardEntry 0.5s ease-out forwards', /* New */
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9; /* secondary-100 */
+    }
+    .dark ::-webkit-scrollbar-track {
+      background: #1f2937; /* secondary-800 or dark.secondary */
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1; /* secondary-300 */
+      border-radius: 10px;
+    }
+    .dark ::-webkit-scrollbar-thumb {
+      background: #4b5563; /* secondary-600 or dark.border */
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #9ca3af; /* secondary-400 */
+    }
+    .dark ::-webkit-scrollbar-thumb:hover {
+      background: #6b7280; /* secondary-500 */
+    }
+    /* Basic page transition placeholder */
+    .page-enter {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    .page-enter-active {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 300ms, transform 300ms;
+    }
+    .page-exit {
+      opacity: 1;
+    }
+    .page-exit-active {
+      opacity: 0;
+      transition: opacity 300ms;
+    }
+    /* Ensure assets/sounds/ringing.mp3 exists for call sounds */
+  </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.6.2",
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react-dom": "https://esm.sh/react-dom@^19.1.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.5.1",
+    "http": "https://esm.sh/http@^0.0.1-security",
+    "url": "https://esm.sh/url@^0.11.4",
+    "path": "https://esm.sh/path@^0.12.7",
+    "express": "https://esm.sh/express@^5.1.0",
+    "cors": "https://esm.sh/cors@^2.8.5",
+    "multer": "https://esm.sh/multer@^2.0.1",
+    "ws": "https://esm.sh/ws@^8.18.2",
+    "body-parser": "https://esm.sh/body-parser@^2.2.0",
+    "fs/": "https://esm.sh/fs@^0.0.1-security/",
+    "uuid": "https://esm.sh/uuid@^11.1.0",
+    "mysql2/": "https://esm.sh/mysql2@^3.14.1/",
+    "bcryptjs": "https://esm.sh/bcryptjs@^3.0.2"
+  }
+}
+</script>
+</head>
+<body class="bg-secondary-100 dark:bg-dark-secondary text-secondary-700 dark:text-dark-text">
+  <div id="root"></div>
+  <div id="toast-container" class="fixed top-4 right-4 z-[100] space-y-2"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

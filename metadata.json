@@ -1,0 +1,9 @@
+{
+  "name": "School Management Portal",
+  "description": "A comprehensive React web application for managing school administration, student, teacher, and parent activities.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "prompt": ""
+}

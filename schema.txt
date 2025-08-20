@@ -1,0 +1,940 @@
+
+-- Database: sms
+
+-- Users & Authentication
+CREATE TABLE IF NOT EXISTS Users (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    avatar VARCHAR(255) NULL, 
+    phone VARCHAR(50) NULL UNIQUE,
+    studentDetailsId VARCHAR(255) NULL UNIQUE, 
+    teacherDetailsId VARCHAR(255) NULL UNIQUE, 
+    childUserId VARCHAR(255) NULL, 
+    lastLogin TIMESTAMP NULL,
+    address TEXT NULL,
+    dateOfBirth DATE NULL,
+    bio TEXT NULL,
+    emergencyContactName VARCHAR(255) NULL,
+    emergencyContactPhone VARCHAR(50) NULL,
+    occupation VARCHAR(255) NULL,
+    studentPoints INT DEFAULT 0,
+    preferences JSON NULL, 
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_users_role (role),
+    INDEX idx_users_email (email)
+);
+
+CREATE TABLE IF NOT EXISTS Students (
+    id VARCHAR(255) PRIMARY KEY, 
+    userId VARCHAR(255) NOT NULL UNIQUE, 
+    studentId VARCHAR(100) NOT NULL UNIQUE, 
+    name VARCHAR(255) NOT NULL, -- Denormalized for convenience, ensure sync with Users.name
+    grade VARCHAR(50) NOT NULL,
+    parentId VARCHAR(255) NULL, 
+    parentContact VARCHAR(255) NULL,
+    classId VARCHAR(255) NULL,
+    medicalConditions TEXT NULL,
+    experiencePoints INT DEFAULT 0, -- Synced with Users.studentPoints if needed, or specific context
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (parentId) REFERENCES Users(id) ON DELETE SET NULL,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE SET NULL,
+    INDEX idx_students_classId (classId),
+    INDEX idx_students_studentId_school (studentId)
+);
+
+CREATE TABLE IF NOT EXISTS StudentBadges (
+    id VARCHAR(255) PRIMARY KEY,
+    studentUserId VARCHAR(255) NOT NULL,
+    badgeName VARCHAR(100) NOT NULL,
+    description TEXT NULL,
+    icon VARCHAR(255) NULL,
+    awardedDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE,
+    UNIQUE (studentUserId, badgeName)
+);
+
+
+-- Academic Structure
+CREATE TABLE IF NOT EXISTS SchoolClasses (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    teacherId VARCHAR(255) NULL,
+    subject VARCHAR(255) NULL,
+    description TEXT NULL,
+    roomNumber VARCHAR(50) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (teacherId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS ClassStudents ( 
+    classId VARCHAR(255) NOT NULL,
+    studentId VARCHAR(255) NOT NULL, 
+    PRIMARY KEY (classId, studentId),
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE CASCADE,
+    FOREIGN KEY (studentId) REFERENCES Students(id) ON DELETE CASCADE
+);
+
+
+CREATE TABLE IF NOT EXISTS Courses (
+    id VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    instructorId VARCHAR(255) NULL,
+    credits INT NULL,
+    department VARCHAR(100) NULL,
+    code VARCHAR(50) NULL UNIQUE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (instructorId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS StudentCourseEnrollments (
+    id VARCHAR(255) PRIMARY KEY,
+    studentUserId VARCHAR(255) NOT NULL,
+    courseId VARCHAR(255) NOT NULL,
+    enrollmentDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'enrolled', -- enrolled, waitlisted, completed, withdrawn
+    progress INT DEFAULT 0,
+    grade VARCHAR(10) NULL,
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (courseId) REFERENCES Courses(id) ON DELETE CASCADE,
+    UNIQUE (studentUserId, courseId)
+);
+
+CREATE TABLE IF NOT EXISTS AcademicYearSettings (
+    id VARCHAR(255) PRIMARY KEY,
+    schoolYear VARCHAR(100) NOT NULL UNIQUE,
+    startDate DATE NULL,
+    endDate DATE NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS AcademicTerms (
+    id VARCHAR(255) PRIMARY KEY,
+    academicYearSettingId VARCHAR(255) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    startDate DATE NOT NULL,
+    endDate DATE NOT NULL,
+    isCurrent BOOLEAN DEFAULT FALSE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (academicYearSettingId) REFERENCES AcademicYearSettings(id) ON DELETE CASCADE
+);
+
+-- Academics: Exams, Marks, Attendance, Syllabus, Timetable
+CREATE TABLE IF NOT EXISTS Exams (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    date DATETIME NOT NULL, 
+    maxMarks DECIMAL(6,2) NOT NULL,
+    classId VARCHAR(255) NULL,
+    subject VARCHAR(255) NULL,
+    teacherId VARCHAR(255) NULL,
+    termId VARCHAR(255) NULL, 
+    description TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE SET NULL,
+    FOREIGN KEY (teacherId) REFERENCES Users(id) ON DELETE SET NULL,
+    FOREIGN KEY (termId) REFERENCES AcademicTerms(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS Marks (
+    id VARCHAR(255) PRIMARY KEY,
+    examId VARCHAR(255) NOT NULL,
+    studentId VARCHAR(255) NOT NULL, -- Student Record ID
+    marksObtained DECIMAL(6,2) NULL,
+    comments TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (examId) REFERENCES Exams(id) ON DELETE CASCADE,
+    FOREIGN KEY (studentId) REFERENCES Students(id) ON DELETE CASCADE,
+    UNIQUE (examId, studentId)
+);
+
+CREATE TABLE IF NOT EXISTS AttendanceRecords (
+    id VARCHAR(255) PRIMARY KEY,
+    studentId VARCHAR(255) NOT NULL, -- Student Record ID
+    date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL, -- present, absent, late, excused
+    classId VARCHAR(255) NULL,
+    remarks TEXT NULL,
+    recordedBy VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (studentId) REFERENCES Students(id) ON DELETE CASCADE,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE SET NULL,
+    FOREIGN KEY (recordedBy) REFERENCES Users(id) ON DELETE SET NULL,
+    UNIQUE(studentId, date, classId)
+);
+
+CREATE TABLE IF NOT EXISTS TimetableSlots (
+    id VARCHAR(255) PRIMARY KEY,
+    classId VARCHAR(255) NOT NULL,
+    dayOfWeek VARCHAR(20) NOT NULL,
+    startTime TIME NOT NULL,
+    endTime TIME NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    teacherId VARCHAR(255) NULL,
+    location VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE CASCADE,
+    FOREIGN KEY (teacherId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS Syllabi (
+    id VARCHAR(255) PRIMARY KEY,
+    classId VARCHAR(255) NULL, 
+    courseId VARCHAR(255) NULL, 
+    subject VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    fileUrl VARCHAR(255) NULL,
+    uploadedBy VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE SET NULL,
+    FOREIGN KEY (courseId) REFERENCES Courses(id) ON DELETE SET NULL,
+    FOREIGN KEY (uploadedBy) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS TeacherResources (
+    id VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    type VARCHAR(50) NOT NULL, -- exercise, syllabus, book_chapter, exam_paper, other
+    classId VARCHAR(255) NULL,
+    subject VARCHAR(255) NULL,
+    description TEXT NULL,
+    fileName VARCHAR(255) NULL,
+    mimeType VARCHAR(100) NULL,
+    fileUrl VARCHAR(255) NULL,
+    uploadedByTeacherId VARCHAR(255) NOT NULL,
+    uploadDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    isLiveExam BOOLEAN DEFAULT FALSE,
+    examDurationMinutes INT NULL,
+    examContent TEXT NULL, 
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE SET NULL,
+    FOREIGN KEY (uploadedByTeacherId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS OnlineExamSubmissions (
+    id VARCHAR(255) PRIMARY KEY,
+    studentUserId VARCHAR(255) NOT NULL,
+    examResourceId VARCHAR(255) NOT NULL,
+    submissionText TEXT NULL,
+    submittedFileUrl VARCHAR(255) NULL,
+    submissionDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    grade DECIMAL(6,2) NULL,
+    feedback TEXT NULL,
+    gradedBy VARCHAR(255) NULL,
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (examResourceId) REFERENCES TeacherResources(id) ON DELETE CASCADE,
+    FOREIGN KEY (gradedBy) REFERENCES Users(id) ON DELETE SET NULL,
+    UNIQUE(studentUserId, examResourceId)
+);
+
+
+-- Resources: Library, Inventory
+CREATE TABLE IF NOT EXISTS LibraryBooks (
+    id VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    author VARCHAR(255) NOT NULL,
+    isbn VARCHAR(50) NULL UNIQUE,
+    quantity INT NOT NULL DEFAULT 0,
+    availableQuantity INT NOT NULL DEFAULT 0,
+    category VARCHAR(100) NULL,
+    publishedDate DATE NULL,
+    publisher VARCHAR(255) NULL,
+    edition VARCHAR(50) NULL,
+    shelfLocation VARCHAR(100) NULL,
+    coverImageUrl VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS BookTransactions (
+    id VARCHAR(255) PRIMARY KEY,
+    bookId VARCHAR(255) NOT NULL,
+    userId VARCHAR(255) NOT NULL,
+    issueDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    dueDate DATE NOT NULL,
+    returnDate TIMESTAMP NULL,
+    status VARCHAR(20) NOT NULL, -- issued, returned, overdue
+    fineAmount DECIMAL(7,2) DEFAULT 0.00,
+    finePaid BOOLEAN DEFAULT FALSE,
+    issuedBy VARCHAR(255) NULL, 
+    returnedTo VARCHAR(255) NULL, 
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (bookId) REFERENCES LibraryBooks(id) ON DELETE RESTRICT,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (issuedBy) REFERENCES Users(id) ON DELETE SET NULL,
+    FOREIGN KEY (returnedTo) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS BookReservations (
+    id VARCHAR(255) PRIMARY KEY,
+    bookId VARCHAR(255) NOT NULL,
+    userId VARCHAR(255) NOT NULL,
+    reservationDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) NOT NULL DEFAULT 'active', 
+    expiresAt TIMESTAMP NULL,
+    FOREIGN KEY (bookId) REFERENCES LibraryBooks(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE,
+    UNIQUE(bookId, userId, status)
+);
+
+CREATE TABLE IF NOT EXISTS BookRequests (
+    id VARCHAR(255) PRIMARY KEY,
+    userId VARCHAR(255) NOT NULL,
+    bookTitle VARCHAR(255) NOT NULL,
+    bookAuthor VARCHAR(255) NULL,
+    isbn VARCHAR(50) NULL,
+    requestDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) NOT NULL DEFAULT 'pending', 
+    notes TEXT NULL, 
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS InventoryItems (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    quantity INT NOT NULL DEFAULT 0,
+    location VARCHAR(255) NULL,
+    supplier VARCHAR(255) NULL,
+    purchaseDate DATE NULL,
+    purchasePrice DECIMAL(10,2) NULL,
+    condition VARCHAR(100) NULL, 
+    lastStockCheck TIMESTAMP NULL,
+    notes TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+
+-- Finance
+CREATE TABLE IF NOT EXISTS FeeCategories (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS FeeStructures (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    classId VARCHAR(255) NULL, 
+    feeCategoryId VARCHAR(255) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    dueDate DATE NULL, 
+    frequency VARCHAR(50) NOT NULL, 
+    academicYear VARCHAR(100) NULL, 
+    termId VARCHAR(255) NULL, 
+    notes TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE SET NULL,
+    FOREIGN KEY (feeCategoryId) REFERENCES FeeCategories(id) ON DELETE RESTRICT,
+    FOREIGN KEY (termId) REFERENCES AcademicTerms(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS StudentAppliedFees (
+    id VARCHAR(255) PRIMARY KEY,
+    studentId VARCHAR(255) NOT NULL, 
+    feeStructureId VARCHAR(255) NOT NULL,
+    termId VARCHAR(255) NULL, 
+    dueDate DATE NULL,
+    isPaid BOOLEAN DEFAULT FALSE,
+    amountDue DECIMAL(10,2) NOT NULL, -- Derived from FeeStructure.amount when applied
+    notes TEXT NULL,
+    FOREIGN KEY (studentId) REFERENCES Students(id) ON DELETE CASCADE,
+    FOREIGN KEY (feeStructureId) REFERENCES FeeStructures(id) ON DELETE CASCADE,
+    FOREIGN KEY (termId) REFERENCES AcademicTerms(id) ON DELETE SET NULL,
+    UNIQUE(studentId, feeStructureId, termId)
+);
+
+CREATE TABLE IF NOT EXISTS FeePayments (
+    id VARCHAR(255) PRIMARY KEY,
+    studentId VARCHAR(255) NOT NULL, 
+    amountPaid DECIMAL(10,2) NOT NULL,
+    paymentDate DATE NOT NULL,
+    paymentMethod VARCHAR(50) NOT NULL,
+    transactionId VARCHAR(255) NULL UNIQUE,
+    receiptNumber VARCHAR(100) NULL UNIQUE,
+    receiptUrl VARCHAR(255) NULL,
+    notes TEXT NULL,
+    recordedBy VARCHAR(255) NULL, 
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (studentId) REFERENCES Students(id) ON DELETE CASCADE,
+    FOREIGN KEY (recordedBy) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS FeePaymentAllocations (
+    paymentId VARCHAR(255) NOT NULL,
+    appliedFeeId VARCHAR(255) NOT NULL, 
+    allocatedAmount DECIMAL(10,2) NOT NULL,
+    PRIMARY KEY (paymentId, appliedFeeId),
+    FOREIGN KEY (paymentId) REFERENCES FeePayments(id) ON DELETE CASCADE,
+    FOREIGN KEY (appliedFeeId) REFERENCES StudentAppliedFees(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS Expenses (
+    id VARCHAR(255) PRIMARY KEY,
+    category VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    date DATE NOT NULL,
+    vendor VARCHAR(255) NULL,
+    receiptUrl VARCHAR(255) NULL,
+    recordedBy VARCHAR(255) NULL,
+    status VARCHAR(50) DEFAULT 'Pending', 
+    approvedBy VARCHAR(255) NULL,
+    paidDate DATE NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (recordedBy) REFERENCES Users(id) ON DELETE SET NULL,
+    FOREIGN KEY (approvedBy) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS PayrollEntries (
+    id VARCHAR(255) PRIMARY KEY,
+    userId VARCHAR(255) NOT NULL, 
+    month VARCHAR(7) NOT NULL, 
+    grossSalary DECIMAL(10,2) NOT NULL,
+    deductions DECIMAL(10,2) DEFAULT 0.00,
+    netSalary DECIMAL(10,2) GENERATED ALWAYS AS (grossSalary - deductions) STORED,
+    paymentDate DATE NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', 
+    notes TEXT NULL,
+    processedBy VARCHAR(255) NULL, 
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (processedBy) REFERENCES Users(id) ON DELETE SET NULL,
+    UNIQUE (userId, month)
+);
+
+
+-- HR & Training
+CREATE TABLE IF NOT EXISTS LeaveRequests (
+    id VARCHAR(255) PRIMARY KEY,
+    userId VARCHAR(255) NOT NULL, 
+    leaveType VARCHAR(100) NOT NULL DEFAULT 'Annual', 
+    startDate DATE NOT NULL,
+    endDate DATE NOT NULL,
+    reason TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', 
+    approvedBy VARCHAR(255) NULL,
+    comments TEXT NULL, 
+    requestDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (approvedBy) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS TrainingSessions (
+    id VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    date DATETIME NOT NULL,
+    trainer VARCHAR(255) NULL,
+    location VARCHAR(255) NULL,
+    durationHours DECIMAL(4,1) NULL,
+    createdBy VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (createdBy) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS TrainingSessionParticipants (
+    sessionId VARCHAR(255) NOT NULL,
+    userId VARCHAR(255) NOT NULL,
+    attended BOOLEAN DEFAULT FALSE,
+    completionStatus VARCHAR(50) NULL, 
+    feedback TEXT NULL,
+    PRIMARY KEY (sessionId, userId),
+    FOREIGN KEY (sessionId) REFERENCES TrainingSessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+
+-- Communication & Events
+CREATE TABLE IF NOT EXISTS Notices (
+    id VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    publishDate DATE NOT NULL,
+    expiryDate DATE NULL,
+    audienceType VARCHAR(20) NOT NULL DEFAULT 'all', 
+    authorId VARCHAR(255) NULL,
+    generatedImageData MEDIUMBLOB NULL, -- For storing base64 image directly if chosen, or use generatedImageUrl for path
+    generatedImageUrl VARCHAR(255) NULL, -- Path to AI generated image if saved as file
+    isPinned BOOLEAN DEFAULT FALSE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (authorId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS NoticeAudienceRoles (
+    noticeId VARCHAR(255) NOT NULL,
+    roleName VARCHAR(50) NOT NULL,
+    PRIMARY KEY (noticeId, roleName),
+    FOREIGN KEY (noticeId) REFERENCES Notices(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS SchoolEvents (
+    id VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    startDate DATETIME NOT NULL,
+    endDate DATETIME NOT NULL,
+    location VARCHAR(255) NULL,
+    organizer VARCHAR(255) NULL,
+    category VARCHAR(100) NULL, 
+    targetAudienceType VARCHAR(20) DEFAULT 'all',
+    imageUrl VARCHAR(255) NULL,
+    createdBy VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (createdBy) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS SchoolEventAudienceRoles (
+    eventId VARCHAR(255) NOT NULL,
+    roleName VARCHAR(50) NOT NULL,
+    PRIMARY KEY (eventId, roleName),
+    FOREIGN KEY (eventId) REFERENCES SchoolEvents(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS Meetings (
+    id VARCHAR(255) PRIMARY KEY,
+    initiatorId VARCHAR(255) NOT NULL,
+    teacherId VARCHAR(255) NOT NULL,
+    parentId VARCHAR(255) NOT NULL,
+    studentId VARCHAR(255) NULL, -- Student Record ID
+    proposedDate DATETIME NOT NULL,
+    reasonForRequest TEXT NULL,
+    meetingType VARCHAR(50) DEFAULT 'standard',
+    status VARCHAR(50) NOT NULL DEFAULT 'requested',
+    meetingLink VARCHAR(255) NULL,
+    notes TEXT NULL, 
+    attendedByParent BOOLEAN NULL,
+    notesByTeacher TEXT NULL, 
+    childVisitDetails TEXT NULL, 
+    parentAttendedTime TIMESTAMP NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (initiatorId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (teacherId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (parentId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (studentId) REFERENCES Students(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS SchoolMessages (
+    id VARCHAR(255) PRIMARY KEY,
+    senderId VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    targetAudienceType VARCHAR(50) NOT NULL, -- 'all', 'roles', 'specific_users', 'classes'
+    sentAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (senderId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS SchoolMessageTargetRoles (
+    messageId VARCHAR(255) NOT NULL,
+    roleName VARCHAR(50) NOT NULL,
+    PRIMARY KEY (messageId, roleName),
+    FOREIGN KEY (messageId) REFERENCES SchoolMessages(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS SchoolMessageTargetUsers (
+    messageId VARCHAR(255) NOT NULL,
+    userId VARCHAR(255) NOT NULL,
+    PRIMARY KEY (messageId, userId),
+    FOREIGN KEY (messageId) REFERENCES SchoolMessages(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS SchoolMessageTargetClasses (
+    messageId VARCHAR(255) NOT NULL,
+    classId VARCHAR(255) NOT NULL,
+    PRIMARY KEY (messageId, classId),
+    FOREIGN KEY (messageId) REFERENCES SchoolMessages(id) ON DELETE CASCADE,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE CASCADE
+);
+
+
+-- Transport
+CREATE TABLE IF NOT EXISTS TransportVehicles (
+    id VARCHAR(255) PRIMARY KEY,
+    vehicleNumber VARCHAR(50) NOT NULL UNIQUE,
+    model VARCHAR(100) NOT NULL,
+    capacity INT NOT NULL,
+    driverId VARCHAR(255) NULL,
+    lastMaintenanceDate DATE NULL,
+    status VARCHAR(50) DEFAULT 'active', 
+    purchaseDate DATE NULL,
+    insuranceExpiry DATE NULL,
+    notes TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (driverId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS TransportRoutes (
+    id VARCHAR(255) PRIMARY KEY,
+    routeName VARCHAR(255) NOT NULL UNIQUE,
+    vehicleId VARCHAR(255) NULL,
+    description TEXT NULL,
+    startTime TIME NULL,
+    endTime TIME NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (vehicleId) REFERENCES TransportVehicles(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS TransportRouteStops (
+    id VARCHAR(255) PRIMARY KEY,
+    routeId VARCHAR(255) NOT NULL,
+    stopName VARCHAR(255) NOT NULL,
+    pickupTime TIME NULL,
+    dropOffTime TIME NULL,
+    stopOrder INT NOT NULL,
+    latitude DECIMAL(10,8) NULL,
+    longitude DECIMAL(11,8) NULL,
+    FOREIGN KEY (routeId) REFERENCES TransportRoutes(id) ON DELETE CASCADE
+);
+
+
+-- System & Settings
+CREATE TABLE IF NOT EXISTS SchoolSettings (
+    id VARCHAR(255) PRIMARY KEY,
+    settingKey VARCHAR(100) NOT NULL UNIQUE,
+    settingValue TEXT NULL,
+    description TEXT NULL,
+    dataType VARCHAR(50) DEFAULT 'string', 
+    isEditable BOOLEAN DEFAULT TRUE,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS HistoryLogs (
+    id VARCHAR(255) PRIMARY KEY,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    userEmail VARCHAR(255) NULL,
+    userId VARCHAR(255) NULL,
+    action VARCHAR(255) NOT NULL,
+    entityType VARCHAR(100) NULL,
+    entityId VARCHAR(255) NULL,
+    details TEXT NULL,
+    ipAddress VARCHAR(50) NULL,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+
+-- Student Specific (Awards, Wellness, Forum)
+CREATE TABLE IF NOT EXISTS Awards (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    dateAwarded DATE NOT NULL,
+    awardedToStudentId VARCHAR(255) NOT NULL, -- Student Record ID
+    awardedBy VARCHAR(255) NULL, 
+    awardType VARCHAR(100) NULL, 
+    icon VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (awardedToStudentId) REFERENCES Students(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS WellnessLogEntries (
+    id VARCHAR(255) PRIMARY KEY,
+    studentUserId VARCHAR(255) NOT NULL,
+    mood VARCHAR(20) NOT NULL, -- happy, okay, sad, anxious, calm
+    entryDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT NULL,
+    loggedByDoctorId VARCHAR(255) NULL,
+    loggedByRole VARCHAR(50) NULL, 
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (loggedByDoctorId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS ForumPosts (
+    id VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    studentUserId VARCHAR(255) NOT NULL,
+    isAnonymous BOOLEAN DEFAULT FALSE,
+    isPinned BOOLEAN DEFAULT FALSE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS ForumPostTags (
+    postId VARCHAR(255) NOT NULL,
+    tag VARCHAR(100) NOT NULL,
+    PRIMARY KEY (postId, tag),
+    FOREIGN KEY (postId) REFERENCES ForumPosts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS ForumReplies (
+    id VARCHAR(255) PRIMARY KEY,
+    postId VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    studentUserId VARCHAR(255) NOT NULL,
+    isAnonymous BOOLEAN DEFAULT FALSE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (postId) REFERENCES ForumPosts(id) ON DELETE CASCADE,
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+
+-- Discipline Management
+CREATE TABLE IF NOT EXISTS DisciplineRules (
+    id VARCHAR(255) PRIMARY KEY,
+    ruleName VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    severityLevel VARCHAR(20) NOT NULL, 
+    applicableToClassId VARCHAR(255) NULL,
+    consequence TEXT NULL,
+    category VARCHAR(100) NULL, 
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (applicableToClassId) REFERENCES SchoolClasses(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS Incidents (
+    id VARCHAR(255) PRIMARY KEY,
+    studentId VARCHAR(255) NOT NULL, -- Student Record ID
+    date DATE NOT NULL,
+    time TIME NULL,
+    location VARCHAR(255) NULL,
+    description TEXT NOT NULL,
+    type VARCHAR(100) NOT NULL, 
+    reportedBy VARCHAR(255) NULL, -- User ID
+    actionTaken TEXT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'Open', 
+    ruleId VARCHAR(255) NULL,
+    witnesses TEXT NULL,
+    resolutionDetails TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (studentId) REFERENCES Students(id) ON DELETE CASCADE,
+    FOREIGN KEY (reportedBy) REFERENCES Users(id) ON DELETE SET NULL,
+    FOREIGN KEY (ruleId) REFERENCES DisciplineRules(id) ON DELETE SET NULL
+);
+
+-- Teacher Comments (for Student Reports)
+CREATE TABLE IF NOT EXISTS TeacherComments (
+    id VARCHAR(255) PRIMARY KEY,
+    studentId VARCHAR(255) NOT NULL, -- Student Record ID
+    teacherId VARCHAR(255) NOT NULL,
+    classId VARCHAR(255) NULL,
+    subject VARCHAR(255) NULL,
+    comment TEXT NOT NULL,
+    term VARCHAR(100) NOT NULL, 
+    date DATE NOT NULL,
+    commentType VARCHAR(50) DEFAULT 'General', 
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (studentId) REFERENCES Students(id) ON DELETE CASCADE,
+    FOREIGN KEY (teacherId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (classId) REFERENCES SchoolClasses(id) ON DELETE SET NULL
+);
+
+-- Chat System
+CREATE TABLE IF NOT EXISTS ChatRooms (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NULL,
+    isGroupChat BOOLEAN NOT NULL DEFAULT FALSE,
+    avatar VARCHAR(255) NULL,
+    creatorId VARCHAR(255) NULL,
+    lastMessageTimestamp TIMESTAMP NULL, 
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (creatorId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS ChatRoomMembers (
+    roomId VARCHAR(255) NOT NULL,
+    userId VARCHAR(255) NOT NULL,
+    isAdmin BOOLEAN DEFAULT FALSE,
+    joinedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    lastReadTimestamp TIMESTAMP NULL,
+    unreadCount INT DEFAULT 0,
+    isMuted BOOLEAN DEFAULT FALSE,
+    PRIMARY KEY (roomId, userId),
+    FOREIGN KEY (roomId) REFERENCES ChatRooms(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS ChatMessages (
+    id VARCHAR(255) PRIMARY KEY,
+    roomId VARCHAR(255) NOT NULL,
+    senderId VARCHAR(255) NOT NULL,
+    text TEXT NULL,
+    fileUrl VARCHAR(255) NULL,
+    fileName VARCHAR(255) NULL,
+    fileType VARCHAR(100) NULL,
+    fileSize BIGINT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'sent', 
+    isDeleted BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (roomId) REFERENCES ChatRooms(id) ON DELETE CASCADE,
+    FOREIGN KEY (senderId) REFERENCES Users(id) ON DELETE CASCADE,
+    INDEX idx_chatmessages_room_time (roomId, timestamp)
+);
+
+
+-- Notifications
+CREATE TABLE IF NOT EXISTS Notifications (
+    id VARCHAR(255) PRIMARY KEY,
+    userId VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    linkTo VARCHAR(255) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'unread',
+    senderId VARCHAR(255) NULL,
+    relatedEntityType VARCHAR(50) NULL,
+    relatedEntityId VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (senderId) REFERENCES Users(id) ON DELETE SET NULL,
+    INDEX idx_notifications_user_status (userId, status, createdAt)
+);
+
+
+-- Calling System
+CREATE TABLE IF NOT EXISTS CallLogs (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NULL, 
+    initiatorId VARCHAR(255) NOT NULL,
+    callTime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    answeredTime TIMESTAMP NULL,
+    endTime TIMESTAMP NULL,
+    durationSeconds INT NULL,
+    status VARCHAR(20) NOT NULL, 
+    type VARCHAR(10) NOT NULL, 
+    isGroupCall BOOLEAN NOT NULL DEFAULT FALSE,
+    FOREIGN KEY (initiatorId) REFERENCES Users(id) ON DELETE CASCADE,
+    INDEX idx_calllogs_initiator_time (initiatorId, callTime)
+);
+
+CREATE TABLE IF NOT EXISTS CallParticipants (
+    id VARCHAR(255) PRIMARY KEY,
+    callLogId VARCHAR(255) NOT NULL,
+    userId VARCHAR(255) NOT NULL,
+    status VARCHAR(30) NOT NULL, 
+    joinedAt TIMESTAMP NULL,
+    leftAt TIMESTAMP NULL,
+    FOREIGN KEY (callLogId) REFERENCES CallLogs(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE,
+    UNIQUE(callLogId, userId)
+);
+
+-- Extracurricular Activities
+CREATE TABLE IF NOT EXISTS Activities (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    category VARCHAR(100) NOT NULL,
+    teacherInChargeId VARCHAR(255) NULL,
+    schedule VARCHAR(255) NULL,
+    location VARCHAR(255) NULL,
+    maxParticipants INT NULL,
+    currentParticipantsCount INT DEFAULT 0,
+    imageUrl VARCHAR(255) NULL,
+    isEnrollmentOpen BOOLEAN DEFAULT TRUE,
+    enrollmentStartDate DATE NULL,
+    enrollmentEndDate DATE NULL,
+    prerequisites TEXT NULL,
+    notes TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (teacherInChargeId) REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS ActivityEnrollments (
+    id VARCHAR(255) PRIMARY KEY,
+    activityId VARCHAR(255) NOT NULL,
+    studentUserId VARCHAR(255) NOT NULL,
+    enrollmentDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) NOT NULL DEFAULT 'enrolled', 
+    notes TEXT NULL, 
+    FOREIGN KEY (activityId) REFERENCES Activities(id) ON DELETE CASCADE,
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE,
+    UNIQUE(activityId, studentUserId)
+);
+
+-- AI Helper Interactions
+CREATE TABLE IF NOT EXISTS HomeworkHelperInteractions (
+    id VARCHAR(255) PRIMARY KEY,
+    studentUserId VARCHAR(255) NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    promptText TEXT NULL,
+    promptImageUrl VARCHAR(255) NULL,
+    aiResponse TEXT NULL,
+    feedbackRating INT NULL, 
+    feedbackComment TEXT NULL,
+    subject VARCHAR(100) NULL,
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS LessonPlans (
+    id VARCHAR(255) PRIMARY KEY,
+    teacherUserId VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    subject VARCHAR(255) NULL,
+    gradeLevel VARCHAR(100) NULL,
+    durationMinutes INT NULL,
+    learningObjectives TEXT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (teacherUserId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS LessonPlanSections (
+    id VARCHAR(255) PRIMARY KEY,
+    lessonPlanId VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    estimatedTimeMinutes INT NULL,
+    sectionOrder INT NOT NULL,
+    FOREIGN KEY (lessonPlanId) REFERENCES LessonPlans(id) ON DELETE CASCADE
+);
+
+-- Additional Tables for Enhanced Functionality (Examples)
+CREATE TABLE IF NOT EXISTS StudentParentLink (
+    studentUserId VARCHAR(255) NOT NULL,
+    parentUserId VARCHAR(255) NOT NULL,
+    relationshipType VARCHAR(50) DEFAULT 'Parent', 
+    PRIMARY KEY (studentUserId, parentUserId),
+    FOREIGN KEY (studentUserId) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (parentUserId) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS SystemAnnouncements ( 
+    id VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    type VARCHAR(50) DEFAULT 'info', 
+    isActive BOOLEAN DEFAULT TRUE,
+    startDate DATETIME NULL,
+    endDate DATETIME NULL,
+    createdBy VARCHAR(255) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (createdBy) REFERENCES Users(id) ON DELETE SET NULL
+);

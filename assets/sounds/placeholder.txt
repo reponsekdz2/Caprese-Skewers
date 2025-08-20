@@ -1,0 +1,7 @@
+This directory is intended to hold sound files.
+Please add a 'ringing.mp3' file here for the call ringing sound to work.
+You can find free ringing sounds online from sites like Pixabay, Mixkit, etc. Ensure you respect any licensing terms.
+Example file name: ringing.mp3
+Make sure this file is placed in `public/assets/sounds/ringing.mp3` or adjust the path in CallContext.tsx.
+For the current setup, it should be in `public/assets/sounds/ringing.mp3` if `public` is the root for static assets.
+If your build process moves assets differently, ensure the path `'/assets/sounds/ringing.mp3'` in `CallContext.tsx` correctly points to the served file.
