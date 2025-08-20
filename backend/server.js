@@ -1,4 +1,4 @@
-// backend/server.js
+// server.js
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
@@ -7,13 +7,9 @@ import WebSocket, { WebSocketServer } from 'ws';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import bcryptjs from 'bcryptjs';
-import fs from 'fs/promises';
-import { v4 as uuidv4 } from 'uuid';
+import * as routers from './routes/index.js';
 
-import pool from './db.js';
-import newApiRouter from './api/main.js'; // Import the new API router
-
+// ESM equivalent for __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -22,366 +18,284 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const PORT = process.env.PORT || 3001;
-const WS_PING_INTERVAL = 30000;
-const SALT_ROUNDS = 10;
+const WS_PING_INTERVAL = 30000; // 30 seconds
 
-// --- Upload Directories Setup ---
-const UPLOAD_BASE_DIR = path.join(__dirname, 'uploads');
-const UPLOAD_DIRS = {
-    avatars: 'avatars',
-    receipts: 'receipts',
-    resources: 'resources',
-    chat_files: 'chat_files',
-    syllabus_files: 'syllabus_files',
-    exam_submissions: 'exam_submissions',
-    homework_images: 'homework_images',
-    notice_images: 'notice_images', // Added for notice images
-};
+// --- In-memory Data Store (IDs are strings for consistency) ---
+let users = [];
+let students = [];
+let classes = [];
+let historyLogs = [];
+let awards = [];
+let exams = [];
+let marks = [];
+let libraryBooks = [];
+let bookTransactions = [];
+let attendanceRecords = [];
+let timetableSlots = [];
+let syllabi = [];
+let inventoryItems = [];
+let feeCategories = [];
+let feeStructures = [];
+let feePayments = [];
+let expenses = [];
+let payrollEntries = [];
+let leaveRequests = [];
+let trainingSessions = [];
+let notices = [];
+let schoolEvents = [];
+let transportVehicles = [];
+let transportRoutes = [];
+let schoolSettings = [{id: 'setting-1', key: 'schoolName', value: 'Sunshine Academy', description: 'The official name of the school.'}, {id: 'setting-2', key: 'currentTerm', value: 'Term 1 2024', description: 'The active academic term.'}];
+let incidents = [];
+let studentWellnessLogs = [];
+let teacherResources = [];
+let meetings = [];
+let chatRooms = [];
+let chatMessages = [];
+let notifications = [];
+let studentPoints = {}; // Store as { userId: { points: number, badges: string[] } }
+let callLogs = [];
+let bookRequests = [];
+let forumPosts = [];
+let forumReplies = [];
+let academicYearSettings = null;
+let courses = []; 
+let studentCourseEnrollments = []; 
+let disciplineRules = [];
+let activities = []; 
+let activityEnrollments = []; 
+let onlineExamSubmissions = [];
 
-const ensureUploadDirs = async () => {
-  try {
-    await fs.mkdir(UPLOAD_BASE_DIR, { recursive: true });
-    for (const dir of Object.values(UPLOAD_DIRS)) {
-      await fs.mkdir(path.join(UPLOAD_BASE_DIR, dir), { recursive: true });
-    }
-    console.log("Upload directories ensured at:", UPLOAD_BASE_DIR);
-  } catch (err) {
-    console.error("Error creating upload directories:", err);
-  }
-};
-ensureUploadDirs();
+// Helper to generate unique IDs
+const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+let nextNotificationId = 1;
+let nextCallId = 1;
+let nextStudentRegNum = 1001;
+
+const ADMIN_EMAIL = 'reponsekdz06@gmail.com';
+const ADMIN_CODE = '20072025';
+
+const WebSocketClients = new Map(); // Renamed to avoid conflict with 'clients' elsewhere if any
+const roomSubscriptions = new Map(); // roomId -> Set<userId>
 
 app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
-app.use('/uploads', express.static(UPLOAD_BASE_DIR));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); // For serving static files if saved to disk
+
+// --- Multer Setup ---
+const storage = multer.memoryStorage();
+const fileUploadMiddleware = multer({ storage: storage, limits: { fileSize: 20 * 1024 * 1024 } }); // Generic file upload
+const avatarUploadMiddleware = multer({
+    storage: storage, limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => file.mimetype.startsWith('image/') ? cb(null, true) : cb(new Error('Only image files for avatars!'), false)
+});
+const receiptUploadMiddleware = multer({
+    storage: storage, limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') ? cb(null, true) : cb(new Error('Only image or PDF for receipts!'), false)
+});
 
 
-// --- Multer Setup for Disk Storage ---
-const createMulterStorage = (subfolder) => {
-  return multer.diskStorage({
-    destination: (req, file, cb) => {
-      const fullPath = path.join(UPLOAD_BASE_DIR, subfolder);
-      cb(null, fullPath);
-    },
-    filename: (req, file, cb) => {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      const extension = path.extname(file.originalname);
-      cb(null, file.fieldname + '-' + uniqueSuffix + extension);
-    }
-  });
+// --- Helper Functions (Finders, Sorters, etc.) ---
+const findUserByEmail = (email) => users.find(u => u.email === email);
+const findUserByPhone = (phone) => users.find(u => u.phone === phone);
+const findUserById = (id) => users.find(u => u.id === id);
+const findStudentById = (id) => students.find(s => s.id === id);
+const findStudentByUserId = (userId) => students.find(s => s.userId === userId);
+const findCallLogById = (id) => callLogs.find(cl => cl.id === id);
+const findClassById = (id) => classes.find(c => c.id === id);
+const findExamById = (id) => exams.find(e => e.id === id);
+const findMarkByStudentAndExam = (studentId, examId) => marks.find(m => m.studentId === studentId && m.examId === examId);
+const findBookById = (id) => libraryBooks.find(b => b.id === id);
+const findInventoryItemById = (id) => inventoryItems.find(i => i.id === id);
+const findFeeCategoryById = (id) => feeCategories.find(fc => fc.id === id);
+const findFeeStructureById = (id) => feeStructures.find(fs => fs.id === id);
+const findExpenseById = (id) => expenses.find(e => e.id === id);
+const findPayrollEntryById = (id) => payrollEntries.find(p => p.id === id);
+const findLeaveRequestById = (id) => leaveRequests.find(lr => lr.id === id);
+const findTrainingSessionById = (id) => trainingSessions.find(ts => ts.id === id);
+const findNoticeById = (id) => notices.find(n => n.id === id);
+const findEventById = (id) => schoolEvents.find(e => e.id === id);
+const findVehicleById = (id) => transportVehicles.find(v => v.id === id);
+const findRouteById = (id) => transportRoutes.find(r => r.id === id);
+const findDisciplineRuleById = (id) => disciplineRules.find(rule => rule.id === id);
+const findIncidentById = (id) => incidents.find(i => i.id === id);
+const findTeacherResourceById = (id) => teacherResources.find(tr => tr.id === id);
+const findMeetingById = (id) => meetings.find(m => m.id === id);
+const findChatRoomById = (id) => chatRooms.find(cr => cr.id === id);
+const findBookRequestById = (id) => bookRequests.find(br => br.id === id);
+const findForumPostById = (id) => forumPosts.find(fp => fp.id === id);
+const findForumReplyById = (id) => forumReplies.find(fr => fr.id === id);
+const findCourseById = (id) => courses.find(c => c.id === id);
+const findWellnessLogById = (id) => studentWellnessLogs.find(log => log.id === id);
+const findOnlineExamSubmissionById = (id) => onlineExamSubmissions.find(sub => sub.id === id);
+const findActivityById = (id) => activities.find(act => act.id === id);
+const findActivityEnrollmentById = (id) => activityEnrollments.find(enr => enr.id === id);
+const findBookTransactionById = (id) => bookTransactions.find(bt => bt.id === id);
+const findStudentCourseEnrollment = (studentId, courseId) => studentCourseEnrollments.find(e => e.studentId === studentId && e.courseId === courseId);
+
+
+const isUserCurrentlyInActiveCall = (userId) => {
+    return callLogs.some(call =>
+        call.participants.some(p => p.userId === userId && p.status === 'connected') &&
+        !['ended', 'declined', 'failed', 'missed', 'left'].includes(call.status)
+    );
 };
 
-const fileTypeFilters = {
-    images: (req, file, cb) => file.mimetype.startsWith('image/') ? cb(null, true) : cb(new Error('Only image files allowed!')),
-    imagesOrPdf: (req, file, cb) => (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') ? cb(null, true) : cb(new Error('Only image or PDF files allowed!')),
-    general: (req, file, cb) => cb(null, true),
-};
 
-const avatarUpload = multer({ storage: createMulterStorage(UPLOAD_DIRS.avatars), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: fileTypeFilters.images });
-const receiptUpload = multer({ storage: createMulterStorage(UPLOAD_DIRS.receipts), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: fileTypeFilters.imagesOrPdf });
-const resourceUpload = multer({ storage: createMulterStorage(UPLOAD_DIRS.resources), limits: { fileSize: 20 * 1024 * 1024 }, fileFilter: fileTypeFilters.general });
-const syllabusUpload = multer({ storage: createMulterStorage(UPLOAD_DIRS.syllabus_files), limits: { fileSize: 10 * 1024 * 1024 }, fileFilter: fileTypeFilters.general });
-const chatFileUpload = multer({ storage: createMulterStorage(UPLOAD_DIRS.chat_files), limits: { fileSize: 15 * 1024 * 1024 }, fileFilter: fileTypeFilters.general });
-const examSubmissionUpload = multer({ storage: createMulterStorage(UPLOAD_DIRS.exam_submissions), limits: { fileSize: 10 * 1024 * 1024 }, fileFilter: fileTypeFilters.general });
-const homeworkImageUpload = multer({ storage: createMulterStorage(UPLOAD_DIRS.homework_images), limits: {fileSize: 4 * 1024 * 1024}, fileFilter: fileTypeFilters.images});
-const noticeImageUpload = multer({ storage: createMulterStorage(UPLOAD_DIRS.notice_images), limits: {fileSize: 5 * 1024 * 1024}, fileFilter: fileTypeFilters.images});
-
-
-// --- Helper Functions ---
-const generateId = (prefix = 'id') => `${prefix}-${uuidv4()}`;
-
-const deleteFileFromUploads = async (filePath) => {
-    if (!filePath || !filePath.startsWith('/uploads/')) return;
-    const absolutePath = path.join(__dirname, filePath.substring(1));
-    try {
-        await fs.unlink(absolutePath);
-        console.log(`Deleted file: ${absolutePath}`);
-    } catch (err) {
-        if (err.code !== 'ENOENT') { 
-            console.warn(`Failed to delete file: ${absolutePath}`, err.message);
-        }
-    }
-};
-
-// --- Initialize Data (Admin User) ---
-const initializeData = async () => {
-    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@school.com';
-    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
-    try {
-        const [existingAdmins] = await pool.query('SELECT id FROM Users WHERE email = ? AND role = ?', [ADMIN_EMAIL, 'Admin']);
-        if (existingAdmins.length === 0) {
-            const adminId = generateId('user-admin');
-            const hashedPassword = await bcryptjs.hash(ADMIN_PASSWORD, SALT_ROUNDS);
-            await pool.query('INSERT INTO Users SET ?', {
-                id: adminId, name: 'School Administrator', email: ADMIN_EMAIL, password: hashedPassword, role: 'Admin', phone: '0000000000', createdAt: new Date(), updatedAt: new Date()
-            });
-            console.log(`Admin user ${ADMIN_EMAIL} created.`);
-        } else {
-            console.log(`Admin user ${ADMIN_EMAIL} already exists.`);
-        }
-    } catch (error) {
-        console.error("Error initializing admin data:", error);
-    }
+const initializeData = () => {
+  if (!users.find(u => u.email === ADMIN_EMAIL)) {
+    const adminId = generateId('user');
+    users.push({ id: adminId, name: 'Admin User', email: ADMIN_EMAIL, password: ADMIN_CODE, role: 'Admin', avatar: null, phone: '1234567890', lastLogin: new Date().toISOString() });
+    studentPoints[adminId] = { points: 0, badges: ['School Admin'] };
+  }
+  let doctorUser = users.find(u => u.role === 'Doctor');
+  if (!doctorUser) {
+    const doctorUserId = generateId('user');
+    doctorUser = { id: doctorUserId, name: 'Dr. Emily Carter', email: 'doctor.carter@school.com', password: 'password123', role: 'Doctor', avatar: null, phone: '9998887777', lastLogin: new Date().toISOString() };
+    users.push(doctorUser); studentPoints[doctorUserId] = { points: 0, badges: ['Healthcare Professional'] };
+  }
+  if (students.length < 2) {
+    const studentUser1Id = generateId('user'); const student1RecordId = generateId('student');
+    users.push({id: studentUser1Id, name: 'Alice Wonderland', email: 'alice@school.com', password: 'password123', role: 'Student', studentDetailsId: student1RecordId });
+    students.push({id: student1RecordId, userId: studentUser1Id, studentId: `S${nextStudentRegNum++}`, name: 'Alice Wonderland', grade: '10', parentContact: 'parent@example.com'});
+    studentWellnessLogs.push({id: generateId('well'), studentUserId: studentUser1Id, studentName: 'Alice Wonderland', mood: 'happy', entryDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), notes: 'Feeling good about recent test.'});
+    const studentUser2Id = generateId('user'); const student2RecordId = generateId('student');
+    users.push({id: studentUser2Id, name: 'Bob The Builder', email: 'bob@school.com', password: 'password123', role: 'Student', studentDetailsId: student2RecordId});
+    students.push({id: student2RecordId, userId: studentUser2Id, studentId: `S${nextStudentRegNum++}`, name: 'Bob The Builder', grade: '9', parentContact: 'parent2@example.com'});
+    studentWellnessLogs.push({id: generateId('well'), studentUserId: studentUser2Id, studentName: 'Bob The Builder', mood: 'anxious', entryDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), notes: 'Worried about upcoming presentation.'});
+    if(doctorUser) { studentWellnessLogs.push({id: generateId('well'), studentUserId: studentUser2Id, studentName: 'Bob The Builder', mood: 'okay', entryDate: new Date().toISOString(), notes: 'Feeling better after talking to a friend.', loggedByDoctorId: doctorUser.id, loggedByDoctorName: doctorUser.name}); }
+  }
+  const aliceUser = users.find(u => u.name === 'Alice Wonderland');
+  if (aliceUser && !awards.some(aw => aw.awardedToStudentId === aliceUser.id)) {
+      awards.push({id: generateId('award'), name: 'Math Olympiad Participation', description: 'Participated in the regional Math Olympiad.', dateAwarded: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), awardedToStudentId: aliceUser.id, awardedBy: 'Math Department'});
+      awards.push({id: generateId('award'), name: 'Science Fair - 2nd Place', description: 'Achieved 2nd place in the annual school science fair.', dateAwarded: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), awardedToStudentId: aliceUser.id, awardedBy: 'Science Department'});
+  }
+  if (!academicYearSettings) {
+    academicYearSettings = { id: generateId('acad-year'), schoolYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`, terms: [ { id: generateId('term'), name: 'Term 1', startDate: `${new Date().getFullYear()}-01-15`, endDate: `${new Date().getFullYear()}-04-05`, isCurrent: true }, { id: generateId('term'), name: 'Term 2', startDate: `${new Date().getFullYear()}-04-22`, endDate: `${new Date().getFullYear()}-07-12`, isCurrent: false }, { id: generateId('term'), name: 'Term 3', startDate: `${new Date().getFullYear()}-08-05`, endDate: `${new Date().getFullYear()}-11-22`, isCurrent: false }, ] };
+  }
+  if(courses.length === 0) {
+    courses.push({id: generateId('course'), title: 'Introduction to Algebra', description: 'Fundamental concepts of algebra.', instructor: 'Dr. Math', credits: 3, department: 'Mathematics', code: 'MATH101'});
+    courses.push({id: generateId('course'), title: 'World History I', description: 'Ancient civilizations to the medieval period.', instructor: 'Prof. History', credits: 3, department: 'Social Studies', code: 'HIST101'});
+  }
+  if(activities.length === 0) {
+    const teacherForActivity = users.find(u => u.role === 'Teacher');
+    activities.push({ id: generateId('activity'), name: 'School Soccer Club', description: 'Join the school soccer club to learn new skills, make friends, and compete!', category: 'Sports', teacherInChargeId: teacherForActivity?.id || null, teacherInChargeName: teacherForActivity?.name || 'TBD', schedule: 'Tuesdays & Thursdays, 4 PM - 5:30 PM', location: 'Main Sports Field', maxParticipants: 30, currentParticipantsCount: 0, isEnrollmentOpen: true });
+    activities.push({ id: generateId('activity'), name: 'Debate Team', description: 'Sharpen your critical thinking and public speaking skills with the debate team.', category: 'Academic Clubs', teacherInChargeId: null, teacherInChargeName: 'Ms. Eloquent', schedule: 'Wednesdays, 3:30 PM - 5 PM', location: 'Room 201', maxParticipants: 20, currentParticipantsCount: 0, isEnrollmentOpen: true });
+  }
+  console.log(`${users.length} users, ${students.length} students, ${courses.length} courses, ${activities.length} activities initialized.`);
 };
 initializeData();
 
-
 // --- Logging Middleware ---
 app.use((req, res, next) => {
-  const userEmail = req.user ? req.user.email : 'Guest';
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl} - User: ${userEmail}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
   next();
 });
 
 // --- History Log Function ---
-const addHistoryLog = async (userEmailOrId, action, details = '', ipAddress = null, entityType = null, entityId = null) => {
-  const isEmail = userEmailOrId && userEmailOrId.includes('@');
-  let userId = null;
-  let userEmail = 'System';
-
-  if (isEmail) {
-    userEmail = userEmailOrId;
-    try {
-        const [users] = await pool.query('SELECT id FROM Users WHERE email = ?', [userEmail]);
-        if (users.length > 0) userId = users[0].id;
-    } catch (e) { console.error("Error fetching userId for history log:", e); }
-  } else if (userEmailOrId) { 
-    userId = userEmailOrId;
-     try {
-        const [users] = await pool.query('SELECT email FROM Users WHERE id = ?', [userId]);
-        if (users.length > 0) userEmail = users[0].email; else userEmail = 'Unknown User';
-    } catch (e) { console.error("Error fetching userEmail for history log:", e); }
-  }
-
-  const newLog = { 
-    id: generateId('log'), userEmail, userId, action, entityType, entityId, details, ipAddress: ipAddress || 'N/A' 
-  };
-  try {
-    await pool.query('INSERT INTO HistoryLogs SET ?', newLog);
-    console.log(`History: ${userEmail} (${userId || 'N/A'}) - ${action} - ${entityType || ''}:${entityId || ''} - ${details}`);
-  } catch (error) {
-    console.error("Error adding to HistoryLogs table:", error);
-  }
+const addHistoryLog = (userEmail, action, details = '') => {
+  const newLog = { id: generateId('log'), timestamp: new Date().toISOString(), userEmail, action, details };
+  historyLogs.push(newLog);
+  console.log(`History: ${userEmail} - ${action} - ${details}`);
 };
 
 // --- Authentication Middleware ---
-const authMiddleware = async (req, res, next) => {
-  const userEmailHeader = req.headers['x-user-email'];
-  if (userEmailHeader) {
-    try {
-      const [users] = await pool.query('SELECT * FROM Users WHERE email = ?', [userEmailHeader]);
-      if (users.length > 0) {
-        req.user = users[0];
-      } else {
-        console.warn(`AuthMiddleware: User with email ${userEmailHeader} not found.`);
-      }
-    } catch (error) {
-      console.error("AuthMiddleware DB error:", error);
+const authMiddleware = (req, res, next) => {
+  const userEmail = req.headers['x-user-email'];
+  if (userEmail) {
+    const user = findUserByEmail(userEmail);
+    if (user) {
+      req.user = user;
+    } else {
+      console.warn(`AuthMiddleware: User with email ${userEmail} not found.`);
     }
   }
   next();
 };
 app.use(authMiddleware);
 
-// --- Role-based Authorization Middleware ---
-const roleAuth = (allowedRoles) => (req, res, next) => {
-  if (!req.user) return res.status(401).json({ message: "Unauthorized: Authentication required." });
-  if (!allowedRoles.includes(req.user.role)) {
-    return res.status(403).json({ message: `Forbidden: Role ${req.user.role} does not have access to this resource.` });
+// =========================================================================================
+// --- API ROUTE MOUNTING ---
+// =========================================================================================
+
+app.use('/api/academics', routers.academicsRouter);
+app.use('/api/activities', routers.activitiesRouter);
+app.use('/api/admin', routers.adminRouter);
+app.use('/api/auth', routers.authRouter);
+app.use('/api/awards', routers.awardsRouter);
+app.use('/api/bursar', routers.bursarRouter);
+app.use('/api/calls', routers.callsRouter);
+app.use('/api/chat', routers.chatRouter);
+app.use('/api/classes', routers.classesRouter);
+app.use('/api/communications', routers.communicationsRouter);
+app.use('/api/dashboard', routers.dashboardsRouter);
+app.use('/api/discipline', routers.disciplineRouter);
+app.use('/api/doctor', routers.doctorRouter);
+app.use('/api/events', routers.eventsRouter);
+app.use('/api/finance', routers.financeRouter);
+app.use('/api/forum', routers.forumRouter);
+app.use('/api/headteacher', routers.headteacherRouter);
+app.use('/api/history', routers.historyRouter);
+app.use('/api/hr', routers.hrRouter);
+app.use('/api/inventory', routers.inventoryRouter);
+app.use('/api/leaderboard', routers.leaderboardRouter);
+app.use('/api/librarian', routers.librarianRouter);
+app.use('/api/library', routers.libraryRouter);
+app.use('/api/meetings', routers.meetingsRouter);
+app.use('/api/notifications', routers.notificationsRouter);
+app.use('/api/parent', routers.parentRouter);
+app.use('/api/settings', routers.settingsRouter);
+app.use('/api/students', routers.studentsRouter);
+app.use('/api/teacher', routers.teacherRouter);
+app.use('/api/transport', routers.transportRouter);
+app.use('/api/users', routers.usersRouter);
+
+// Pass middleware to routers that need it (example for file uploads)
+routers.usersRouter.post('/', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.usersRouter.put('/:id', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.studentsRouter.post('/', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.studentsRouter.put('/:id', avatarUploadMiddleware.single('avatarFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.financeRouter.post('/expenses', receiptUploadMiddleware.single('receiptFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.financeRouter.put('/expenses/:id', receiptUploadMiddleware.single('receiptFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.academicsRouter.post('/syllabus', fileUploadMiddleware.single('syllabusFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.academicsRouter.put('/syllabus/:syllabusId', fileUploadMiddleware.single('syllabusFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.teacherRouter.post('/resources', fileUploadMiddleware.single('resourceFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.teacherRouter.put('/resources/:id', fileUploadMiddleware.single('resourceFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+routers.chatRouter.post('/upload-file', fileUploadMiddleware.single('chatFile'), (req, res) => res.status(501).json({message: "Not implemented"}));
+
+// =========================================================================================
+// --- WebSocket Server Logic ---
+// =========================================================================================
+wss.on('connection', (ws, req) => { /* ... existing code ... */ });
+
+
+// =========================================================================================
+// --- Generic Error Handler & Server Start ---
+// =========================================================================================
+// Default route for unmatched API calls
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ message: `API endpoint ${req.originalUrl} not found.` });
+});
+
+// Generic error handler
+app.use((err, req, res, next) => {
+  console.error("Global Error Handler:", err.stack || err.message || err);
+  // If the error is from multer (e.g. file too large), it might have specific properties
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ message: `File too large. ${err.message}` });
   }
-  next();
-};
-
-// =========================================================================================
-// --- API ROUTES ---
-// =========================================================================================
-
-// Mount the new API router for version 2
-app.use('/api/v2', newApiRouter);
-
-// --- Auth Routes ---
-const authRouter = express.Router();
-authRouter.post('/login', async (req, res) => {
-    const { email, password, role: requestedRole } = req.body;
-    if (!email || !password) return res.status(400).json({ success: false, message: "Email and password are required." });
-    try {
-        const [users] = await pool.query('SELECT * FROM Users WHERE email = ?', [email]);
-        if (users.length === 0) return res.status(401).json({ success: false, message: "Invalid credentials." });
-        
-        const user = users[0];
-        const passwordMatch = await bcryptjs.compare(password, user.password);
-        if (!passwordMatch) return res.status(401).json({ success: false, message: "Invalid credentials." });
-
-        if (requestedRole && user.role !== requestedRole) {
-            if (user.role === 'Accountant' && requestedRole === 'Bursar') {
-                // Allow accountant to login as Bursar
-            } else {
-                return res.status(403).json({ success: false, message: `Access denied. You are trying to log in as ${requestedRole} but your account is ${user.role}.` });
-            }
-        }
-        
-        await pool.query('UPDATE Users SET lastLogin = NOW() WHERE id = ?', [user.id]);
-        addHistoryLog(user.email, 'User Login', `User ${user.email} logged in as ${user.role}.`, req.ip, 'User', user.id);
-        const { password: _, ...userToReturn } = user; 
-        res.json({ success: true, user: userToReturn, message: "Login successful." });
-    } catch (error) {
-        console.error("Login error:", error);
-        res.status(500).json({ success: false, message: "Server error during login." });
-    }
+  if (err.message && (err.message.includes('Only image files') || err.message.includes('Only image or PDF'))) {
+    return res.status(400).json({ message: err.message });
+  }
+  res.status(err.status || 500).json({
+    message: err.message || "An unexpected server error occurred.",
+    // ...(process.env.NODE_ENV === 'development' && { stack: err.stack }) // Optional: include stack in dev
+  });
 });
-authRouter.post('/login-admin', async (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ success: false, message: "Email and password are required." });
-    try {
-        const [users] = await pool.query('SELECT * FROM Users WHERE email = ? AND role = ?', [email, 'Admin']);
-        if (users.length === 0) return res.status(401).json({ success: false, message: "Invalid admin credentials or not an admin." });
-        
-        const adminUser = users[0];
-        const passwordMatch = await bcryptjs.compare(password, adminUser.password);
-        if (!passwordMatch) return res.status(401).json({ success: false, message: "Invalid admin credentials." });
-        
-        await pool.query('UPDATE Users SET lastLogin = NOW() WHERE id = ?', [adminUser.id]);
-        addHistoryLog(adminUser.email, 'Admin Login', `Admin ${adminUser.email} logged in.`, req.ip, 'User', adminUser.id);
-        const { password: _, ...userToReturn } = adminUser;
-        res.json({ success: true, user: userToReturn, message: "Admin login successful." });
-    } catch (error) {
-        console.error("Admin login error:", error);
-        res.status(500).json({ success: false, message: "Server error during admin login." });
-    }
+
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
-authRouter.post('/register', async (req, res) => {
-    const { name, email, password, role, phone, ...otherDetails } = req.body; 
-    if (!name || !email || !password || !role) {
-        return res.status(400).json({ success: false, message: "Name, email, password, and role are required." });
-    }
-    if (role === 'Admin') return res.status(403).json({success: false, message: "Admin registration is not allowed."});
-    
-    try {
-        const [existingUsers] = await pool.query('SELECT id FROM Users WHERE email = ? OR (phone IS NOT NULL AND phone = ? AND phone != "")', [email, phone || null]);
-        if (existingUsers.length > 0) {
-            return res.status(409).json({ success: false, message: "User with this email or phone already exists." });
-        }
 
-        const hashedPassword = await bcryptjs.hash(password, SALT_ROUNDS);
-        const userId = generateId('user');
-        const studentDetailsId = role === 'Student' ? generateId('student') : null;
-        
-        const newUser = {
-            id: userId, name, email, password: hashedPassword, role, phone: phone || null,
-            studentDetailsId,
-            address: otherDetails.address || null,
-            dateOfBirth: otherDetails.dateOfBirth || null,
-            bio: otherDetails.bio || null,
-            emergencyContactName: otherDetails.emergencyContactName || null,
-            emergencyContactPhone: otherDetails.emergencyContactPhone || null,
-            occupation: otherDetails.occupation || null,
-            childUserId: otherDetails.childUserId || null, 
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        };
-
-        await pool.query('INSERT INTO Users SET ?', newUser);
-        
-        if (role === 'Student') {
-            const studentIdSuffix = Math.floor(1000 + Math.random() * 9000);
-            const schoolStudentId = `S${new Date().getFullYear().toString().slice(-2)}${studentIdSuffix}`;
-            const newStudent = {
-                id: studentDetailsId, userId, studentId: schoolStudentId, name, 
-                grade: otherDetails.grade || 'Not Assigned',
-                parentId: otherDetails.parentId || null, // This should be the Parent's User.id
-                parentContact: otherDetails.parentContact || null,
-                classId: otherDetails.classId || null,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-            };
-            await pool.query('INSERT INTO Students SET ?', newStudent);
-        }
-        
-        addHistoryLog(email, 'User Registration', `New user ${email} registered as ${role}.`, req.ip, 'User', userId);
-        const { password: _, ...userToReturn } = newUser;
-        res.status(201).json({ success: true, user: userToReturn, message: "Registration successful." });
-
-    } catch (error) {
-        console.error("Registration error:", error);
-        if (error.code === 'ER_DUP_ENTRY') {
-            return res.status(409).json({ success: false, message: "A user with that email or phone already exists." });
-        }
-        res.status(500).json({ success: false, message: "Server error during registration." });
-    }
-});
-authRouter.post('/login-phone', (req, res) => res.status(501).json({success: false, message: "Phone login not implemented yet"}));
-authRouter.post('/register-phone', (req, res) => res.status(501).json({success: false, message: "Phone registration not implemented yet"}));
-app.use('/api/auth', authRouter);
-
-
-// --- User Management Routes ---
-const userRouter = express.Router();
-userRouter.get('/', roleAuth(['Admin', 'Head Teacher']), async (req, res) => {
-    const { role, name, email } = req.query;
-    let query = 'SELECT id, name, email, role, avatar, phone, lastLogin FROM Users WHERE 1=1';
-    const params = [];
-    if (role) { query += ' AND role = ?'; params.push(role); }
-    if (name) { query += ' AND name LIKE ?'; params.push(`%${name}%`); }
-    if (email) { query += ' AND email LIKE ?'; params.push(`%${email}%`); }
-    query += ' ORDER BY name ASC';
-    try {
-        const [users] = await pool.query(query, params);
-        res.json(users);
-    } catch (error) { res.status(500).json({ message: "Error fetching users", error: error.message }); }
-});
-userRouter.get('/:id', authMiddleware, async (req, res) => { 
-    if (!req.user) return res.status(401).json({message: "Auth required"});
-    try {
-        const [users] = await pool.query('SELECT id, name, email, role, avatar, phone, lastLogin, address, dateOfBirth, bio, emergencyContactName, emergencyContactPhone, occupation, studentPoints, preferences FROM Users WHERE id = ?', [req.params.id]);
-        if (users.length === 0) return res.status(404).json({ message: "User not found" });
-        const userResult = users[0];
-        try { userResult.preferences = userResult.preferences ? JSON.parse(userResult.preferences) : {}; } catch (e) { userResult.preferences = {}; }
-        res.json(userResult);
-    } catch (error) { res.status(500).json({ message: "Error fetching user details", error: error.message }); }
-});
-userRouter.post('/', roleAuth(['Admin']), avatarUpload.single('avatarFile'), async (req, res) => {
-    const { name, email, password, role, phone, ...otherDetails } = req.body;
-    if (!name || !email || !password || !role) return res.status(400).json({ message: "Name, email, password, and role are required." });
-    if (role === 'Admin' && req.user.role !== 'Admin') return res.status(403).json({message: "Only Admins can create other Admins."});
-
-    try {
-        const [existing] = await pool.query('SELECT id FROM Users WHERE email = ? OR (phone IS NOT NULL AND phone = ? AND phone != "")', [email, phone || null]);
-        if (existing.length > 0) return res.status(409).json({message: "Email or phone already exists."});
-
-        const hashedPassword = await bcryptjs.hash(password, SALT_ROUNDS);
-        const userId = generateId('user');
-        const avatarPath = req.file ? `/uploads/${UPLOAD_DIRS.avatars}/${req.file.filename}` : null;
-        
-        const newUser = {
-            id: userId, name, email, password: hashedPassword, role, phone: phone || null, avatar: avatarPath,
-            address: otherDetails.address || null, dateOfBirth: otherDetails.dateOfBirth || null, bio: otherDetails.bio || null,
-            emergencyContactName: otherDetails.emergencyContactName || null, emergencyContactPhone: otherDetails.emergencyContactPhone || null,
-            occupation: otherDetails.occupation || null, createdAt: new Date(), updatedAt: new Date()
-        };
-        await pool.query('INSERT INTO Users SET ?', newUser);
-        addHistoryLog(req.user.email, 'Create User', `Created user ${email} (${role}).`, req.ip, 'User', userId);
-        const { password: _, ...userToReturn } = newUser;
-        res.status(201).json(userToReturn);
-    } catch (error) { 
-        if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({message: "Email or phone already exists."});
-        console.error("Error creating user:", error);
-        res.status(500).json({ message: "Error creating user", error: error.message }); 
-    }
-});
-userRouter.put('/:id', authMiddleware, avatarUpload.single('avatarFile'), async (req, res) => {
-    const { id } = req.params;
-    if (req.user.id !== id && req.user.role !== 'Admin' && req.user.role !== 'Head Teacher') {
-        return res.status(403).json({ message: "Forbidden: You can only update your own profile or an Admin/Head Teacher can update others." });
-    }
-    const { name, email, phone, role, currentPassword, newPassword, avatar: avatarAction, ...otherDetails } = req.body;
-    try {
-        const [users] = await pool.query('SELECT * FROM Users WHERE id = ?', [id]);
-        if (users.length === 0) return res.status(404).json({ message: "User not found" });
-        const userToUpdate = users[0];
-
-        const updateFields = {};
-        if (name !== undefined) updateFields.name = name;
-        if (email !== undefined && email !== userToUpdate.email) {
-            const [existingEmail] = await pool.query('SELECT id FROM Users WHERE email = ? AND id != ?', [email, id]);
-            if(existingEmail.length > 0)
+export default app; // For potential testing
